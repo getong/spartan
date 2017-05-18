@@ -12,7 +12,15 @@
 -include("spartan.hrl").
 
 %% API
--export([exhibitor_timeout/0, udp_enabled/0, tcp_enabled/0, tcp_port/0, udp_port/0, bind_interface/0, bind_ips/0, forward_zones/0]).
+-export([
+    exhibitor_timeout/0,
+    udp_enabled/0, udp_port/0,
+    tcp_enabled/0, tcp_port/0,
+    http_enabled/0, http_port/0,
+    bind_interface/0, bind_ips/0,
+    forward_zones/0
+]).
+
 exhibitor_timeout() ->
     application:get_env(?APP, exhibitor_timeout, ?EXHIBITOR_TIMEOUT).
 
@@ -27,6 +35,12 @@ tcp_port() ->
 
 udp_port() ->
     application:get_env(?APP, udp_port, 5454).
+
+http_enabled() ->
+    application:get_env(?APP, http_server_enabled, true).
+
+http_port() ->
+    application:get_env(?APP, http_port, 5455).
 
 -spec(forward_zones() -> #{[dns:label()] => [{string(), integer()}]}).
 forward_zones() ->

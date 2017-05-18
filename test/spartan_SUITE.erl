@@ -14,7 +14,10 @@
          multiple_query_test/1,
          upstream_test/1,
          mesos_test/1,
-         zk_test/1
+         zk_test/1,
+         http_hosts_test/1,
+         http_services_test/1,
+         http_records_test/1
         ]).
 
 -include_lib("common_test/include/ct.hrl").
@@ -58,7 +61,10 @@ all() ->
      upstream_test,
      mesos_test,
      zk_test,
-     multiple_query_test
+     multiple_query_test,
+     http_hosts_test,
+     http_services_test,
+     http_records_test
     ].
 
 generate_fixture_mesos_zone() ->
@@ -89,6 +95,28 @@ generate_fixture_mesos_zone() ->
             ttl = 3600,
             data = #dns_rrdata_ns{
                 dname = <<"ns.spartan">>
+            }
+        },
+        #dns_rr{
+            name = <<"_service._tcp.marathon.mesos">>,
+            type = ?DNS_TYPE_SRV,
+            ttl = 5,
+            data = #dns_rrdata_srv{
+                priority = 0,
+                weight = 0,
+                port = 1024,
+                target = <<"master.mesos">>
+            }
+        },
+        #dns_rr{
+            name = <<"_service._tcp.marathon.mesos">>,
+            type = ?DNS_TYPE_SRV,
+            ttl = 5,
+            data = #dns_rrdata_srv{
+                priority = 0,
+                weight = 0,
+                port = 2048,
+                target = <<"master.mesos">>
             }
         }
     ],
@@ -140,3 +168,48 @@ multiple_query_test(_Config) ->
 resolver_options() ->
     LocalResolver = "127.0.0.1:8053",
     [{nameservers, [spartan_app:parse_ipv4_address_with_port(LocalResolver, 53)]}].
+
+http_hosts_test(_Config) ->
+    Records = request("http://localhost:5455/v1/hosts/master.mesos"),
+    lists:foreach(fun (RR) ->
+        ?assertMatch(
+            {<<"host">>, <<"master.mesos">>},
+            lists:keyfind(<<"host">>, 1, RR)),
+        {<<"ip">>, Ip} =
+            lists:keyfind(<<"ip">>, 1, RR),
+        ?assertMatch(
+            {ok, _},
+            inet:parse_address(binary_to_list(Ip)))
+    end, Records).
+
+http_services_test(_Config) ->
+    Records = request("http://localhost:5455/v1/services/_service._tcp.marathon.mesos"),
+    lists:foreach(fun (RR) ->
+        ?assertMatch(
+            {<<"service">>, <<"_service._tcp.marathon.mesos">>},
+            lists:keyfind(<<"service">>, 1, RR)),
+        ?assertMatch(
+            {<<"host">>, <<"master.mesos">>},
+            lists:keyfind(<<"host">>, 1, RR)),
+        ?assertMatch(
+            {<<"ip">>, <<"127.0.0.1">>},
+            lists:keyfind(<<"ip">>, 1, RR)),
+        {<<"port">>, Port} = lists:keyfind(<<"port">>, 1, RR),
+        ?assertMatch(true, lists:member(Port, [1024, 2048]))
+    end, Records).
+
+http_records_test(_Config) ->
+    Records = request("http://localhost:5455/v1/records"),
+    Records0 =
+        lists:filter(fun (RR) ->
+            {<<"name">>, Name} = lists:keyfind(<<"name">>, 1, RR),
+            lists:member(Name, [<<"ready.spartan">>, <<"ns.spartan">>,
+                                <<"ns.zk">>, <<"zk-1.zk">>,
+                                <<"localhost">>, <<"master.mesos">>, <<"_service._tcp.marathon.mesos">>])
+        end, Records),
+    ?assertMatch(8, length(Records0)).
+
+request(Url) ->
+    {ok, {_, _, Data}} =
+        httpc:request(get, {Url, []}, [], [{body_format, binary}]),
+    jsx:decode(Data).
